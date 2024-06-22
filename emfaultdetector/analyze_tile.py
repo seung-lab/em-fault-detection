@@ -29,19 +29,21 @@ def extract_tissue_roi(filename):
 
 	image *= roi
 
+	# find tape and cut it off
 	out = cc3d.connected_components(image, delta=3)
 	out = cc3d.largest_k(out, k=1)
 	out = fill_voids.fill(out, in_place=True)
-
 	image *= out
 
+	# segment tissue and resin
 	out = cc3d.connected_components(image, delta=1)
-
 	out = cc3d.dust(out, threshold=50)
-
 	out = fastmorph.fill_holes(out, remove_enclosed=True)
 	out = cc3d.largest_k(out, k=3)
 
+	# estimate tissue label based on centrality to roi
+	# and remove it (tissue label is often an underestimate
+	# while the resin segmentation is often better)
 	roi_center = cc3d.statistics(roi)["centroids"][0]
 	roi_center = np.atleast_2d(roi_center)
 
@@ -50,11 +52,17 @@ def extract_tissue_roi(filename):
 
 	distances = scipy.spatial.distance.cdist(roi_center, centroids)
 	tissue_id = np.argmax(distances)
+
+	# remove the tissue ROI so we can get
+	# a better segmentation by excluding resin
 	out[out == tissue_id] = 0
 
+	# fill out the resin a bit better
 	for i in range(3):
 		out = fastmorph.dilate(out)
 
+	# remove the resin and obtain a more precise
+	# tissue label
 	image[out > 0] = 0
 	mask = cc3d.largest_k(image > 0, k=1)
 
