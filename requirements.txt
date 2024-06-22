@@ -1,0 +1,3 @@
+microviewer
+numpy
+simplejpeg
