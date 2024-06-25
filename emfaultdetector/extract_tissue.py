@@ -7,9 +7,54 @@ import fastmorph
 import scipy
 import fill_voids
 import cc3d
+import fastremap
+import cv2 as cv
 
 HOME = os.environ["HOME"]
 IMAGE_DIR = os.path.join(HOME, "code/em-fault-detection/faulty_images/ok")
+
+def calculate_moments_of_inertia(binary_image):
+    # Calculate moments of the binary image
+	centroid = cc3d.statistics(binary_image)["centroids"][0]
+	centroid_x, centroid_y = tuple(centroid)
+
+	rows, cols = np.indices(binary_image.shape)
+
+	# Calculate second moments (moments of inertia)
+	Ixx = np.sum((rows - centroid_y)**2 * binary_image)
+	Iyy = np.sum((cols - centroid_x)**2 * binary_image)
+	Ixy = -np.sum((rows - centroid_y) * (cols - centroid_x) * binary_image)
+
+	# Inertia tensor
+	inertia_tensor = np.array([[Ixx, Ixy],
+	                           [Ixy, Iyy]])
+
+	return inertia_tensor, (centroid_x, centroid_y)
+
+def compute_principal_axes(inertia_tensor):
+    # Compute eigenvalues and eigenvectors
+    eigenvalues, eigenvectors = np.linalg.eig(inertia_tensor)
+
+    # Sort eigenvalues and eigenvectors in descending order
+    idx = np.argsort(eigenvalues)[::-1]
+    eigenvalues = eigenvalues[idx]
+    eigenvectors = eigenvectors[:, idx]
+
+    # The eigenvectors are the principal axes
+    principal_axes = eigenvectors
+
+    return principal_axes, eigenvalues
+
+def get_axes(binary_image):
+	tensor, origin = calculate_moments_of_inertia(binary_image)
+	axes, eigenvalues = compute_principal_axes(tensor)
+	return origin, axes
+
+def draw_axis(image, origin, ax):
+	axis_length = 200
+	p1 = tuple([ int(x) for x in origin ])
+	p2 = tuple([ int(x) for x in (origin + ax * axis_length) ])
+	cv.line(image, p1, p2, (0, 0, 255), 2)
 
 def extract_tissue_roi(filename):
 	"""works with non-defective samples"""
@@ -17,8 +62,10 @@ def extract_tissue_roi(filename):
 		binary = f.read()
 
 	image = simplejpeg.decode_jpeg(binary, colorspace="GRAY")[:,:,0]
-	orig = np.copy(image)
+	clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(16,16))
+	image = clahe.apply(image)
 
+	orig = np.copy(image)
 
 	# exclude surrounding bg
 	roi = (image > 50)
